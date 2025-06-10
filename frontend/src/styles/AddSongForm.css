@@ -1,0 +1,56 @@
+/* frontend/src/components/AddSongForm.css */
+.add-song-container {
+    width: 100%;
+    background-color: var(--component-dark);
+    padding: var(--spacing-unit);
+    border-radius: var(--border-radius);
+    margin-top: calc(var(--spacing-unit) * 2);
+  }
+  
+.add-song-container h3 {
+margin-bottom: var(--spacing-unit);
+font-weight: 500;
+}
+
+.add-song-form {
+display: flex;
+gap: 10px;
+}
+
+.add-song-form input {
+flex-grow: 1;
+padding: 10px 15px;
+font-size: 1rem;
+border-radius: 8px;
+border: 1px solid #333;
+background-color: #242424;
+color: var(--text-color);
+}
+
+.add-song-form button {
+padding: 10px 20px;
+font-size: 1rem;
+border-radius: 8px;
+border: none;
+background-color: var(--secondary-color);
+color: white;
+cursor: pointer;
+transition: background-color 0.2s;
+}
+
+.add-song-form button:hover {
+background-color: #40a9ff;
+}
+
+.form-message {
+    margin-top: var(--spacing-unit);
+    color: var(--text-secondary);
+}
+
+/* Add to frontend/src/styles/AddSongForm.css */
+.form-message.success {
+color: var(--primary-color);
+}
+.form-message.error {
+color: #ff7875;
+}

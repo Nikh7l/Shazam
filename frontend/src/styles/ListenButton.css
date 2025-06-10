@@ -1,0 +1,66 @@
+/* frontend/src/styles/ListenButton.css */
+.listen-button-wrapper {
+  position: relative;
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  width: 200px;
+  height: 200px;
+}
+
+.listen-button {
+  width: 150px;
+  height: 150px;
+  border-radius: 50%;
+  background-color: var(--primary-color);
+  border: none;
+  cursor: pointer;
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  box-shadow: 0 5px 25px rgba(29, 185, 84, 0.3);
+  transition: transform 0.2s ease, box-shadow 0.2s ease;
+  z-index: 10;
+}
+
+.listen-button:hover {
+  transform: scale(1.05);
+  box-shadow: 0 8px 30px rgba(29, 185, 84, 0.5);
+}
+
+.listen-button-icon {
+  width: 70px;
+  height: 70px;
+  color: #fff;
+}
+
+/* Listening Animation Rings */
+.listen-button-wrapper .ring {
+  position: absolute;
+  border-radius: 50%;
+  border: 2px solid rgba(29, 185, 84, 0.7);
+  animation: spread 2s infinite cubic-bezier(0.1, 0.7, 1.0, 0.1);
+  opacity: 0;
+  z-index: 1;
+}
+
+.listen-button-wrapper .ring.delay1 {
+  animation-delay: 0.5s;
+}
+
+.listen-button-wrapper .ring.delay2 {
+  animation-delay: 1s;
+}
+
+@keyframes spread {
+  0% {
+    width: 140px;
+    height: 140px;
+    opacity: 1;
+  }
+  100% {
+    width: 250px;
+    height: 250px;
+    opacity: 0;
+  }
+}

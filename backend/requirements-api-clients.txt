@@ -1,0 +1,6 @@
+# API clients dependencies
+spotipy>=2.23.0  # Spotify Web API wrapper
+yt-dlp>=2023.11.16  # YouTube downloader
+python-dotenv>=1.0.0  # For loading environment variables
+requests>=2.31.0  # HTTP client
+ffmpeg-python>=0.2.0  # For audio processing
