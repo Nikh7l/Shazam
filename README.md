@@ -79,10 +79,9 @@ npm start
 - Song matching against a database of known songs
 - Web interface for recording and matching audio
 - Integration with Spotify and YouTube for song metadata and playback
+- Add songs to the application's database via Spotify URL
 
 ## Next Steps
 
-- [ ] Implement audio processing pipeline
-- [ ] Build the React frontend
 - [ ] Add user authentication
 - [ ] Deploy the application
