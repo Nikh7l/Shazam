@@ -1,3 +1,4 @@
+"""Integration tests for the WebSocket communication and real-time client updates."""
 # backend/test_websocket.py
 import websocket
 import threading
@@ -6,7 +7,7 @@ import json
 import os
 
 WS_URL = "ws://localhost:5001/identify"
-TEST_AUDIO_FILE = "test_music.mp3" # Make sure this file exists!
+TEST_AUDIO_FILE = os.path.join(os.path.dirname(__file__), "..", "..", "backend", "test_music.mp3") # Make sure this file exists!
 
 def on_message(ws, message):
     print("\n<-- Received from server:")
@@ -44,19 +45,3 @@ def on_open(ws):
             ws.close()
             
     threading.Thread(target=run).start()
-
-if __name__ == "__main__":
-    print("\n--- Testing WebSocket Identification Endpoint ---")
-    
-    if not os.path.exists(TEST_AUDIO_FILE):
-        print(f"FATAL: Please create a test audio file named '{TEST_AUDIO_FILE}' in the backend directory.")
-    else:
-        websocket.enableTrace(False) # Set to True for verbose debugging
-        ws = websocket.WebSocketApp(WS_URL,
-                                  on_open=on_open,
-                                  on_message=on_message,
-                                  on_error=on_error,
-                                  on_close=on_close)
-        
-        print("Connecting to WebSocket...")
-        ws.run_forever()

@@ -1,7 +1,6 @@
-"""
-Test script for the Shazam clone API.
+"""Integration tests for the file upload functionality of the Shazam clone API.
 
-This script demonstrates how to upload an audio file to the API.
+This script tests the `/api/songs` endpoint for audio file uploads with metadata.
 """
 import os
 import sys
@@ -46,20 +45,3 @@ def test_upload_audio(api_url, audio_file_path, title, artist, album=None):
         return False
     finally:
         files['file'][1].close()
-
-def main():
-    if len(sys.argv) < 4:
-        print(f"Usage: {sys.argv[0]} <audio_file> <title> <artist> [album]")
-        print("Example: python test_upload.py song.mp3 \"Song Title\" \"Artist Name\" \"Album Name\"")
-        return
-    
-    api_url = "http://localhost:5001"
-    audio_file = sys.argv[1]
-    title = sys.argv[2]
-    artist = sys.argv[3]
-    album = sys.argv[4] if len(sys.argv) > 4 else None
-    
-    test_upload_audio(api_url, audio_file, title, artist, album)
-
-if __name__ == "__main__":
-    main()

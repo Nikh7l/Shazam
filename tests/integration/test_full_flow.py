@@ -1,3 +1,4 @@
+"""Integration tests for the complete song ingestion and matching flow."""
 # backend/test_full_flow.py
 import requests
 import websocket
@@ -105,22 +106,3 @@ def delete_song_from_db(song_id):
             print(f"❌ FAILED to delete song {song_id}. Status: {response.status_code}")
     except requests.exceptions.RequestException as e:
         print(f"❌ FAILED to connect to server for cleanup: {e}")
-
-
-if __name__ == "__main__":
-    # Ensure server is running
-    print("--- Shazam Clone Full Flow Test ---")
-    print("Make sure the server is running on http://localhost:5001 and the database is fresh.")
-    time.sleep(2)
-
-    # Execute the workflow
-    added_song_id = add_song_to_db()
-    
-    if added_song_id:
-        # Give the server a moment before we try to match
-        print("\nWaiting a moment before matching...")
-        time.sleep(2)
-        match_snippet_via_websocket()
-        
-    # Always try to clean up
-    delete_song_from_db(added_song_id)
