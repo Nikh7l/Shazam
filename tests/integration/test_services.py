@@ -1,3 +1,4 @@
+"""Integration tests for various backend services, including API client interactions and database operations."""
 # backend/test_services.py
 import os
 import sys
@@ -5,7 +6,6 @@ import logging
 from dotenv import load_dotenv
 
 # Add project root to Python path
-sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '.')))
 
 # Load environment variables
 load_dotenv()
@@ -18,8 +18,8 @@ def test_api_clients():
     """Test Spotify and YouTube API clients."""
     print("\n--- Testing API Clients ---")
     try:
-        from api_clients.spotify_client import SpotifyClient
-        from api_clients.youtube_client import YouTubeClient
+        from backend.api_clients.spotify_client import SpotifyClient
+        from backend.api_clients.youtube_client import YouTubeClient
         
         # Test Spotify
         spotify = SpotifyClient()
@@ -46,7 +46,7 @@ def test_database_handler():
     """Test the DatabaseHandler methods."""
     print("\n--- Testing Database Handler ---")
     try:
-        from database.db_handler import DatabaseHandler
+        from backend.database.db_handler import DatabaseHandler
         
         # Use an in-memory or test-specific DB
         db_handler = DatabaseHandler()
@@ -82,7 +82,3 @@ def test_database_handler():
     except Exception as e:
         logger.error(f"Database Handler test failed: {e}", exc_info=True)
         raise
-
-if __name__ == "__main__":
-    test_api_clients()
-    test_database_handler()

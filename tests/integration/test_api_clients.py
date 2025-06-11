@@ -9,7 +9,6 @@ import logging
 from dotenv import load_dotenv
 
 # Add parent directory to path
-sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '.')))
 
 # Configure logging
 logging.basicConfig(
@@ -21,7 +20,7 @@ logger = logging.getLogger(__name__)
 def test_spotify_client():
     """Test the Spotify client."""
     try:
-        from api_clients.spotify_client import spotify
+        from backend.api_clients.spotify_client import spotify
         
         # Test with a known track URL
         test_url = "https://open.spotify.com/track/5CQ30WqJwcep0pYcV4AMNc"  # Blinding Lights - The Weeknd
@@ -47,7 +46,7 @@ def test_spotify_client():
 def test_youtube_client():
     """Test the YouTube client."""
     try:
-        from api_clients.youtube_client import youtube
+        from backend.api_clients.youtube_client import youtube
         
         # Test search
         query = "The Weeknd Blinding Lights"
@@ -86,11 +85,3 @@ def test_youtube_client():
             
     except Exception as e:
         logger.error(f"YouTube test failed: {str(e)}", exc_info=True)
-
-if __name__ == "__main__":
-    # Load environment variables
-    load_dotenv()
-    
-    # Run tests
-    test_spotify_client()
-    test_youtube_client()

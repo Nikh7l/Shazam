@@ -1,19 +1,19 @@
+"""Unit tests for audio fingerprinting and matching logic in `backend.shazam_core`."""
 import os
 import sys
 import pytest
 from pathlib import Path
 
 # Add the backend directory to the Python path
-sys.path.insert(0, str(Path(__file__).parent.parent / 'backend'))
 
 # Now import from the shazam_core package
-from shazam_core.audio_utils import load_audio
-from shazam_core.fingerprinting import Fingerprinter, FingerprintMatcher
-from database.db_handler import DatabaseHandler
+from backend.shazam_core.audio_utils import load_audio
+from backend.shazam_core.fingerprinting import Fingerprinter, FingerprintMatcher
+from backend.database.db_handler import DatabaseHandler
 
 # Test audio file 
-SAMPLE_AUDIO_FILE = os.path.join(os.path.dirname(__file__), 'data', 'sample.wav')
-TEST_DB_PATH = os.path.join(os.path.dirname(__file__), 'test_fingerprints.db')
+SAMPLE_AUDIO_FILE = os.path.join(os.path.dirname(__file__), '..', 'data', 'sample.wav')
+TEST_DB_PATH = os.path.join(os.path.dirname(__file__), '..', 'test_fingerprints.db')
 
 @pytest.fixture
 def sample_audio():
@@ -159,8 +159,3 @@ def test_time_coherence(sample_audio, db_handler):
     
     # The best match should have a high number of matches
     assert matches[0]['total_matches'] > 10  # Check total unique hashes matched
-
-if __name__ == "__main__":
-    # Run tests with pytest
-    import pytest
-    pytest.main([__file__, "-v"])

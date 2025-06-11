@@ -1,7 +1,7 @@
-"""
-Test script for the song ingestion API endpoints.
+"""Integration tests for the song ingestion process via API endpoints,
+including metadata fetching and storage.
 
-This script tests the Spotify and YouTube song ingestion endpoints.
+This script covers Spotify and YouTube song ingestion.
 """
 import os
 import sys
@@ -11,7 +11,6 @@ import requests
 from dotenv import load_dotenv
 
 # Add parent directory to path
-sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '.')))
 
 # Load environment variables
 load_dotenv()
@@ -80,14 +79,3 @@ def test_song_search():
     print(f"Status Code: {response.status_code}")
     print("Response:")
     print(json.dumps(response.json(), indent=2))
-
-if __name__ == "__main__":
-    # Make sure the Flask app is running before testing
-    print("Make sure the Flask app is running on port 5001 before running these tests.")
-    print("Starting tests in 2 seconds...")
-    time.sleep(2)
-    
-    # Run tests
-    test_spotify_ingestion()
-    test_youtube_ingestion()
-    test_song_search()

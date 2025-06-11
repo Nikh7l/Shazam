@@ -1,21 +1,20 @@
+"""Integration tests evaluating the robustness of fingerprinting and matching under various audio conditions."""
 import os
 import sys
 import logging
 import time
 from pydub import AudioSegment
 
-sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '.')))
-
-from database.db_handler import DatabaseHandler
-from shazam_core.fingerprinting import Fingerprinter, FingerprintMatcher
-from shazam_core.audio_utils import load_audio
+from backend.database.db_handler import DatabaseHandler
+from backend.shazam_core.fingerprinting import Fingerprinter, FingerprintMatcher
+from backend.shazam_core.audio_utils import load_audio
 
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 logger = logging.getLogger(__name__)
 
 # --- Configuration ---
 DB_PATH = "robust_test.db"
-FULL_SONG_PATH = "test_music.mp3"
+FULL_SONG_PATH = os.path.join(os.path.dirname(__file__), "..", "..", "backend", "test_music.mp3")
 SNIPPET_DURATION_MS = 7 * 1000  # 7-second snippets, similar to the frontend
 # Define multiple start times to test (in seconds)
 SNIPPET_START_TIMES_SEC = [15,3,9,89, 45, 70, 110] 
@@ -79,20 +78,3 @@ def cleanup():
     if os.path.exists(DB_PATH):
         os.remove(DB_PATH)
     logger.info("✅ Cleanup complete.")
-
-if __name__ == "__main__":
-    fingerprinter_instance = Fingerprinter()
-    
-    db = setup_clean_database()
-    song_id = ingest_full_song(db, fingerprinter_instance)
-    
-    if song_id:
-        success = run_matching_tests(db, fingerprinter_instance, song_id)
-        print("\n-------------------------------------------")
-        if success:
-            print("🎉🎉🎉 ALL ROBUSTNESS TESTS PASSED! 🎉🎉🎉")
-        else:
-            print("🚨 SOME ROBUSTNESS TESTS FAILED. 🚨")
-        print("-------------------------------------------")
-
-    cleanup()

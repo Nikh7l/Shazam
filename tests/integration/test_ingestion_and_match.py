@@ -1,3 +1,4 @@
+"""Integration tests for the combined song ingestion and fingerprint matching process."""
 import os
 import sys
 import logging
@@ -6,14 +7,13 @@ from unittest.mock import patch, DEFAULT # <-- Import DEFAULT
 from pydub import AudioSegment # For creating audio clips
 
 # Add project root to Python path
-sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '.')))
 
-from database.db_handler import DatabaseHandler
-from shazam_core.fingerprinting import Fingerprinter, FingerprintMatcher
-from shazam_core.audio_utils import load_audio
-from services.song_ingester import SongIngester
-from api_clients.spotify_client import SpotifyClient
-from api_clients.youtube_client import YouTubeClient
+from backend.database.db_handler import DatabaseHandler
+from backend.shazam_core.fingerprinting import Fingerprinter, FingerprintMatcher
+from backend.shazam_core.audio_utils import load_audio
+from backend.services.song_ingester import SongIngester
+from backend.api_clients.spotify_client import SpotifyClient
+from backend.api_clients.youtube_client import YouTubeClient
 from dotenv import load_dotenv
 
 load_dotenv()
@@ -53,7 +53,7 @@ def ingest_from_spotify_and_save(db_handler, ingester, spotify_url, song_index):
     # Define a unique path for this song's download
     downloaded_song_path = os.path.join(DOWNLOADS_DIR, f"downloaded_song_{song_index}.mp3")
 
-    with patch('services.song_ingester.os.remove') as mock_os_remove:
+    with patch('backend.services.song_ingester.os.remove') as mock_os_remove:
         def save_instead_of_delete(path):
             logger.info(f"-> Mocking os.remove: Renaming {path} to {downloaded_song_path}")
             if os.path.exists(downloaded_song_path):
@@ -255,75 +255,3 @@ def cleanup(ingested_song_data_dict): # Pass the dictionary of song paths
             logger.info(f"Directory {DOWNLOADS_DIR} not empty, not removed.")
 
     logger.info("✅ Cleanup complete.")
-
-
-if __name__ == "__main__":
-    # Ensure DOWNLOADS_DIR exists and is empty
-    if os.path.exists(DOWNLOADS_DIR):
-        for filename in os.listdir(DOWNLOADS_DIR):
-            os.remove(os.path.join(DOWNLOADS_DIR, filename)) # Clear out old files
-    else:
-        os.makedirs(DOWNLOADS_DIR) # Create if it doesn't exist
-
-    db = setup_clean_database()
-    spotify_client = SpotifyClient()
-    youtube_client = YouTubeClient()
-    ingester_instance = SongIngester(db, spotify_client, youtube_client)
-    fingerprinter_instance = Fingerprinter()
-    
-    ingested_song_data = {} # To store {song_id: {"path": "...", "title": "..."}}
-    target_song_id_for_clipping = None
-    target_song_full_path_for_clipping = None
-    target_song_title_for_clipping = None
-
-    logger.info("--- Starting Batch Song Ingestion ---")
-    for i, url in enumerate(SONG_URLS_TO_INGEST):
-        song_id, file_path, song_title = ingest_from_spotify_and_save(db, ingester_instance, url, i)
-        if song_id and file_path:
-            ingested_song_data[song_id] = {"path": file_path, "title": song_title}
-            if url == TARGET_SONG_FOR_CLIPPING_URL:
-                target_song_id_for_clipping = song_id
-                target_song_full_path_for_clipping = file_path
-                target_song_title_for_clipping = song_title
-        else:
-            logger.error(f"Failed to ingest and save song: {url}")
-    
-    if not ingested_song_data:
-        logger.error("No songs were successfully ingested. Aborting tests.")
-        cleanup(ingested_song_data) # Pass the (empty) dict
-        sys.exit(1)
-
-    logger.info("--- Batch Song Ingestion Complete ---")
-    logger.info(f"Ingested data: {ingested_song_data}")
-
-    # Test full match for all ingested songs
-    if target_song_id_for_clipping and target_song_full_path_for_clipping:
-        logger.info(f"\n--- Testing Full Match for Target Song for Clipping ---")
-        test_local_file_match(
-            db, 
-            fingerprinter_instance, 
-            target_song_id_for_clipping, 
-            target_song_full_path_for_clipping,
-            target_song_title_for_clipping
-        )
-    else:
-        logger.warning("Target song for clipping was not ingested successfully. Skipping its full match test.")
-
-    logger.info("\n--- Initiating Partial Clip Matching Tests for ALL Ingested Songs ---")
-    if ingested_song_data:
-        partial_match_success = test_partial_clips_match(
-            db, 
-            fingerprinter_instance, 
-            ingested_song_data, 
-            CLIP_DURATIONS_TO_TEST,
-            CLIP_START_OFFSETS_PERCENTAGES,
-            MIN_MATCH_SCORE_THRESHOLD
-        )
-        if partial_match_success:
-            logger.info("✅ All partial clip matching tests passed or met criteria.")
-        else:
-            logger.warning("⚠️ Some partial clip matching tests failed or did not find confident matches for all songs.")
-    else:
-        logger.warning("No songs were successfully ingested to test partial clips.")
-
-    cleanup(ingested_song_data) # Pass the dict of paths

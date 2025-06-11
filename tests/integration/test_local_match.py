@@ -1,22 +1,22 @@
+"""Integration tests for matching local audio files against the database."""
 import os
 import sys
 import logging
 from pydub import AudioSegment
 
 # Add project root to Python path to find our modules
-sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '.')))
 
 # Import our project's components
-from database.db_handler import DatabaseHandler
-from shazam_core.fingerprinting import Fingerprinter, FingerprintMatcher
-from shazam_core.audio_utils import load_audio
+from backend.database.db_handler import DatabaseHandler
+from backend.shazam_core.fingerprinting import Fingerprinter, FingerprintMatcher
+from backend.shazam_core.audio_utils import load_audio
 
 # --- Configuration ---
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 logger = logging.getLogger(__name__)
 
 DB_PATH = "test_local_db.db"
-FULL_SONG_PATH = "test_music.mp3"
+FULL_SONG_PATH = os.path.join(os.path.dirname(__file__), "..", "..", "backend", "test_music.mp3")
 SNIPPET_PATH = "temp_snippet.mp3"
 SNIPPET_START_MS = 30 * 1000  # Start snippet at 30 seconds
 SNIPPET_DURATION_MS = 10 * 1000 # Make it 10 seconds long
@@ -132,18 +132,3 @@ def cleanup():
             os.remove(f)
             logger.info(f"Removed {f}")
     logger.info("✅ Cleanup complete.")
-
-
-if __name__ == "__main__":
-    fingerprinter_instance = Fingerprinter()
-    
-    # Run the full test workflow
-    db_handler_instance = setup_clean_database()
-    ingested_song_id = ingest_full_song(db_handler_instance, fingerprinter_instance)
-    
-    if ingested_song_id:
-        if create_test_snippet():
-            match_snippet(db_handler_instance, fingerprinter_instance, ingested_song_id)
-
-    # Always run cleanup
-    cleanup()
