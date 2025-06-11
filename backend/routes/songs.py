@@ -1,6 +1,7 @@
 # backend/routes/songs.py
 from flask import Blueprint, request, jsonify, current_app
 import os
+from typing import Optional
 import uuid
 from shazam_core.fingerprinting import Fingerprinter, FingerprintMatcher
 from services.song_ingester import SongIngester
@@ -9,8 +10,8 @@ import logging
 from api_clients.spotify_client import SpotifyClient
 from api_clients.youtube_client import YouTubeClient
 from dotenv import load_dotenv
-import os
-from concurrent.futures import ThreadPoolExecutor, as_completed
+# import os # Removed duplicate import, already imported at the top
+from concurrent.futures import ThreadPoolExecutor, ProcessPoolExecutor, as_completed
 
 load_dotenv()
 
@@ -34,8 +35,14 @@ song_ingester = SongIngester(
 
 songs_bp = Blueprint('songs_bp', __name__)
 
-# Thread pool for parallel processing of playlist tracks
-playlist_executor = ThreadPoolExecutor(max_workers=4)
+# Initialize a ProcessPoolExecutor for parallel playlist track ingestion.
+# ProcessPoolExecutor is chosen because the song fingerprinting process (and other potential
+# heavy computations like audio downloading/conversion, though currently handled before this stage),
+# can be CPU-bound. Fingerprinting involves STFT and other numerical computations.
+# Using processes allows bypassing Python's Global Interpreter Lock (GIL) for these tasks,
+# leading to true parallelism on multi-core processors.
+# max_workers is set to the number of CPU cores (os.cpu_count()) for optimal CPU utilization.
+playlist_executor = ProcessPoolExecutor(max_workers=os.cpu_count())
 
 @songs_bp.route('/api/songs', methods=['POST'])
 def add_from_spotify():
@@ -112,6 +119,58 @@ def process_single_track(spotify_url):
         return jsonify({"success": False, "error": str(e)}), 400
 
 
+def process_single_track_in_playlist_process_safe(spotify_url: str, db_path: str, spotify_client_id: Optional[str], spotify_client_secret: Optional[str], youtube_api_key: Optional[str]):
+    """Helper function to process a single track within a playlist, safe for ProcessPoolExecutor."""
+    logger.info(f"Process {os.getpid()} initializing clients for track: {spotify_url}")
+    # Initialize dependencies within the process
+    current_spotify_client = SpotifyClient(client_id=spotify_client_id, client_secret=spotify_client_secret)
+    current_youtube_client = YouTubeClient(api_key=youtube_api_key)
+    current_db_handler = DatabaseHandler(db_path=db_path)
+    # _init_db is typically called in DatabaseHandler constructor, so explicit call might not be needed
+    # current_db_handler._init_db()
+
+    current_song_ingester = SongIngester(
+        db_handler=current_db_handler,
+        spotify_client=current_spotify_client,
+        youtube_client=current_youtube_client
+    )
+
+    try:
+        # Check if song already exists using current_db_handler
+        existing_song = current_db_handler.get_song_by_spotify_url(spotify_url)
+        if existing_song:
+            logger.info(f"Song already exists (in process {os.getpid()}): {spotify_url}")
+            return {
+                "success": True, "type": "track", "song_id": existing_song['id'],
+                "title": existing_song.get('title', 'Unknown'),
+                "artist": existing_song.get('artist', 'Unknown'), "status": "already_exists",
+                "spotify_url": spotify_url
+            }
+
+        logger.info(f"Ingesting song (in process {os.getpid()}): {spotify_url}")
+        # ingest_from_spotify returns a dict like:
+        # {'success': True, 'song_id': song_id, 'title': ..., 'artist': ...}
+        # or {'success': False, 'error': ...}
+        song_result = current_song_ingester.ingest_from_spotify(spotify_url)
+
+        if song_result and song_result.get('success'):
+            return {
+                "success": True, "type": "track", "song_id": song_result.get('song_id'),
+                "title": song_result.get('title'), "artist": song_result.get('artist'),
+                "status": "added", "spotify_url": spotify_url
+            }
+        else:
+            logger.error(f"Failed to import song (in process {os.getpid()}) {spotify_url}: {song_result.get('error', 'Unknown error')}")
+            return {
+                "success": False, "error": song_result.get('error', "Failed to import song"),
+                "spotify_url": spotify_url
+            }
+
+    except Exception as e:
+        logger.error(f"Error processing track {spotify_url} in child process {os.getpid()}: {str(e)}", exc_info=True)
+        return {"success": False, "error": str(e), "spotify_url": spotify_url}
+
+
 def process_playlist(playlist_url):
     """Process all tracks from a Spotify playlist."""
     try:
@@ -132,51 +191,64 @@ def process_playlist(playlist_url):
             spotify_url = track.get('spotify_url', '')
             if not spotify_url:
                 logger.warning(f"Skipping track without Spotify URL: {track.get('title', 'Unknown')}")
+                results.append({
+                    "success": False,
+                    "error": "Missing spotify_url",
+                    "title": track.get('title', 'Unknown')
+                })
                 continue
-                
-            future = playlist_executor.submit(process_single_track_in_playlist, spotify_url)
+
+            # Submit to the new process-safe function
+            future = playlist_executor.submit(
+                process_single_track_in_playlist_process_safe,
+                spotify_url,
+                DB_PATH_FOR_APP, # Defined globally
+                os.getenv('SPOTIPY_CLIENT_ID'),
+                os.getenv('SPOTIPY_CLIENT_SECRET'),
+                os.getenv('YOUTUBE_API_KEY')
+            )
             futures.append(future)
         
         # Collect results
+        success_count = 0
         for future in as_completed(futures):
             try:
-                result = future.result()
-                results.append(result)
+                result = future.result() # This is the dict from process_single_track_in_playlist_process_safe
+                if result: # Ensure result is not None
+                    results.append(result)
+                    if result.get("success"):
+                        success_count += 1
+                else:
+                    # Handle cases where a future might somehow return None, though our function always returns a dict
+                    logger.warning("A future in playlist processing returned None.")
+                    results.append({"success": False, "error": "Processing task returned None.", "spotify_url": "Unknown"})
             except Exception as e:
-                logger.error(f"Error processing track: {str(e)}", exc_info=True)
-                results.append({"success": False, "error": str(e)})
-        
-        # Count successful imports
-        success_count = sum(1 for r in results if r is not None)
+                # This captures errors from the future itself (e.g., if the process failed unexpectedly)
+                # The process_single_track_in_playlist_process_safe is designed to catch its own errors and return a dict.
+                logger.error(f"Exception collecting result from playlist future: {str(e)}", exc_info=True)
+                # We don't know which URL it was for at this stage easily, unless we map futures to URLs.
+                # For simplicity, adding a generic error. A more robust solution might involve
+                # associating futures with their input spotify_url if detailed error reporting per track is needed here.
+                results.append({"success": False, "error": f"Future completed with an exception: {str(e)}", "spotify_url": "Unknown from exception"})
         
         return jsonify({
             "success": True,
             "type": "playlist",
-            "message": f"Processed {len(tracks)} tracks, {success_count} successfully imported",
+            "message": f"Processed {len(tracks)} tracks, {success_count} successfully processed/found.",
             "total_tracks": len(tracks),
-            "imported_count": success_count,
+            "successful_operations": success_count, # Clarified field name
             "results": results
         })
         
-    except ValueError as e:
-        logger.error(f"Error processing playlist: {str(e)}", exc_info=True)
+    except ValueError as e: # Specific errors like invalid playlist URL before track processing
+        logger.error(f"ValueError processing playlist {playlist_url}: {str(e)}", exc_info=True)
         return jsonify({"success": False, "error": str(e)}), 400
-    except Exception as e:
-        logger.error(f"Unexpected error processing playlist: {str(e)}", exc_info=True)
-        return jsonify({"success": False, "error": "An unexpected error occurred"}), 500
+    except Exception as e: # Catch-all for other unexpected errors during playlist processing
+        logger.error(f"Unexpected error processing playlist {playlist_url}: {str(e)}", exc_info=True)
+        return jsonify({"success": False, "error": "An unexpected error occurred during playlist processing"}), 500
 
-
-def process_single_track_in_playlist(spotify_url):
-    """Helper function to process a single track within a playlist."""
-    try:
-        song_id = song_ingester.ingest_from_spotify(spotify_url)
-        if song_id:
-            return song_id 
-        return None
-    except Exception as e:
-        logger.error(f"Error processing track {spotify_url}: {str(e)}", exc_info=True)
-        raise
-
+# The old process_single_track_in_playlist function was removed as it's no longer used.
+# Its functionality is replaced by process_single_track_in_playlist_process_safe for playlist processing.
 
 @songs_bp.route('/api/songs', methods=['GET'])
 def get_all_songs():
