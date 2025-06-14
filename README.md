@@ -66,8 +66,11 @@ pip install -r requirements.txt
 
 # Create a .env file and add your API keys
 cp .env.example .env
+SPOTIFY_CLIENT_ID =
+SPOTIFY_CLIENT_SECRET = 
 # Now, edit the .env file with your credentials
 ```
+Get you Spotify Client ID and Secret [Spotify Docs](https://developer.spotify.com/documentation/web-api/tutorials/getting-started).
 
 **Note:** The application will automatically create the `shazam_library.db` SQLite database on first run.
 
