@@ -1,7 +1,6 @@
 import pytest
 import os
 from backend.database.db_handler import DatabaseHandler
-from backend.database.schema import create_tables # To ensure schema is created
 
 # Use a temporary in-memory database for most tests
 # For tests requiring a file, use a temporary file path

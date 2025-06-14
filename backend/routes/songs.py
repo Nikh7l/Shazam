@@ -22,18 +22,13 @@ logger = logging.getLogger(__name__)
 project_root_for_db = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..'))
 DB_PATH_FOR_APP = os.path.join(project_root_for_db, "shazam_library.db")
 
-db_handler = DatabaseHandler(db_path=DB_PATH_FOR_APP)
-logger.info(f"Flask app's DatabaseHandler initialized with DB path: {DB_PATH_FOR_APP}")
+songs_bp = Blueprint('songs', __name__, url_prefix='/api')
 
-spotify_client = SpotifyClient() 
+# Initialize dependencies that don't depend on the app context first
+spotify_client = SpotifyClient()
 youtube_client = YouTubeClient()
-song_ingester = SongIngester(
-    db_handler=db_handler,
-    spotify_client=spotify_client,
-    youtube_client=youtube_client
-)
 
-songs_bp = Blueprint('songs_bp', __name__)
+
 
 # Initialize a ProcessPoolExecutor for parallel playlist track ingestion.
 # ProcessPoolExecutor is chosen because the song fingerprinting process (and other potential
@@ -43,80 +38,85 @@ songs_bp = Blueprint('songs_bp', __name__)
 # leading to true parallelism on multi-core processors.
 # max_workers is set to the number of CPU cores (os.cpu_count()) for optimal CPU utilization.
 playlist_executor = ProcessPoolExecutor(max_workers=os.cpu_count())
+db_handler = current_app.extensions['db_handler']
 
-@songs_bp.route('/api/songs', methods=['POST'])
+@songs_bp.route('/songs', methods=['POST'])
 def add_from_spotify():
-    """
-    Adds songs to the database from a Spotify URL.
-    Can handle both individual tracks and playlists.
-    
-    Request body:
-    {
-        "spotify_url": "https://open.spotify.com/track/..."  # For individual track
-        or
-        "spotify_url": "https://open.spotify.com/playlist/..."  # For playlist
-    }
-    """
     data = request.get_json()
     if not data or 'spotify_url' not in data:
-        return jsonify({"success": False, "error": "spotify_url is required"}), 400
+        return jsonify({"error": "Missing spotify_url parameter"}), 400
 
     spotify_url = data['spotify_url'].strip()
-    
-    try:
-        # Check if it's a playlist URL
-        if 'open.spotify.com/playlist/' in spotify_url or 'spotify:playlist:' in spotify_url:
-            logger.info(f"Processing Spotify playlist: {spotify_url}")
-            return process_playlist(spotify_url)
-        # Check if it's a track URL
-        elif 'open.spotify.com/track/' in spotify_url or 'spotify:track:' in spotify_url:
-            logger.info(f"Processing Spotify track: {spotify_url}")
-            return process_single_track(spotify_url)
-        else:
-            return jsonify({
-                "success": False, 
-                "error": "Invalid Spotify URL. Must be a track or playlist URL"
-            }), 400
-    except Exception as e:
-        logger.error(f"Error processing Spotify URL: {str(e)}", exc_info=True)
-        return jsonify({"success": False, "error": str(e)}), 400
+    task_id = str(uuid.uuid4())
 
-
-def process_single_track(spotify_url):
-    """Process a single Spotify track."""
     try:
-        # Check if song already exists
-        existing_song = db_handler.get_song_by_spotify_url(spotify_url)
-        if existing_song:
-            logger.info(f"Song already exists: {spotify_url}")
+        if 'open.spotify.com/playlist/' in spotify_url:
+            task_type = "playlist"
+            tracks = spotify_client.get_playlist_tracks(spotify_url)
+            if not tracks:
+                return jsonify({"success": False, "error": "Playlist is empty or could not be fetched."}), 400
+            
+            db_handler.create_task(task_id, task_type, spotify_url, total_items=len(tracks))
+
+            playlist_executor.submit(
+                _process_playlist_async,
+                spotify_url, # Although not strictly needed, good for logging
+                task_id,
+                tracks
+            )
+            
             return jsonify({
                 "success": True,
-                "type": "track",
-                "song_id": existing_song['id'],
-                "title": existing_song.get('title', 'Unknown'),
-                "artist": existing_song.get('artist', 'Unknown'),
-                "status": "already_exists"
+                "task_id": task_id,
+                "message": "Playlist processing started"
             })
+            
+        elif 'open.spotify.com/track/' in spotify_url:
+            task_type = "track"
+            db_handler.create_task(task_id, task_type, spotify_url)
 
-        # Ingest the song
-        logger.info(f"Ingesting song: {spotify_url}")
-        song = song_ingester.ingest_from_spotify(spotify_url)
-        
-        if song['success'] == True:
+            
+            playlist_executor.submit(
+                _process_single_track_async,
+                spotify_url,
+                task_id
+            )
+            
             return jsonify({
                 "success": True,
-                "type": "track",
-                "song_id": song.get('song_id', 'Unknown'),
-                "title": song.get('title', 'Unknown'),
-                "artist": song.get('artist', 'Unknown'),
-                "status": "added"
+                "message": "Track processing started",
+                "task_id": task_id
             })
+            
         else:
-            return jsonify({"success": False, "error": "Failed to import song"}), 400
+            return jsonify({"error": "Invalid Spotify URL"}), 400
             
     except Exception as e:
-        logger.error(f"Error processing track: {str(e)}", exc_info=True)
-        return jsonify({"success": False, "error": str(e)}), 400
+        logger.error(f"Error submitting track task: {str(e)}", exc_info=True)
+        return jsonify({"success": False, "error": str(e)}), 500
+
+
+def _process_single_track_async(spotify_url, task_id):
+    """Process single track in background and update task status."""
+    # This function runs in a separate process, so it needs to create its own db_handler.
+    # We must ensure it uses the same DB_PATH.
+    db_handler_process = DatabaseHandler(db_path=DB_PATH_FOR_APP)
+    try:
+        result = process_single_track_in_playlist_process_safe(
+            spotify_url,
+            DB_PATH_FOR_APP,
+            os.getenv('SPOTIPY_CLIENT_ID'),
+            os.getenv('SPOTIPY_CLIENT_SECRET'),
+            os.getenv('YOUTUBE_API_KEY')
+        )
+        
+        db_handler_process.complete_task(task_id, result)
+        return result
+        
+    except Exception as e:
+        logger.error(f"Async track processing failed: {str(e)}", exc_info=True)
+        db_handler_process.complete_task(task_id, {"error": str(e)})
+        return {"success": False, "error": str(e)}
 
 
 def process_single_track_in_playlist_process_safe(spotify_url: str, db_path: str, spotify_client_id: Optional[str], spotify_client_secret: Optional[str], youtube_api_key: Optional[str]):
@@ -124,7 +124,7 @@ def process_single_track_in_playlist_process_safe(spotify_url: str, db_path: str
     logger.info(f"Process {os.getpid()} initializing clients for track: {spotify_url}")
     # Initialize dependencies within the process
     current_spotify_client = SpotifyClient(client_id=spotify_client_id, client_secret=spotify_client_secret)
-    current_youtube_client = YouTubeClient(api_key=youtube_api_key)
+    current_youtube_client = YouTubeClient()
     current_db_handler = DatabaseHandler(db_path=db_path)
     # _init_db is typically called in DatabaseHandler constructor, so explicit call might not be needed
     # current_db_handler._init_db()
@@ -171,93 +171,56 @@ def process_single_track_in_playlist_process_safe(spotify_url: str, db_path: str
         return {"success": False, "error": str(e), "spotify_url": spotify_url}
 
 
-def process_playlist(playlist_url):
-    """Process all tracks from a Spotify playlist."""
-    try:
-        # Get all tracks from the playlist
-        logger.info(f"Fetching tracks from playlist: {playlist_url}")
-        tracks = spotify_client.get_playlist_tracks(playlist_url)
-        
-        if not tracks:
-            return jsonify({"success": False, "error": "No tracks found in playlist"}), 400
-        
-        logger.info(f"Found {len(tracks)} tracks in playlist")
-        
-        # Process tracks in parallel
-        results = []
-        futures = []
-        
-        for track in tracks:
-            spotify_url = track.get('spotify_url', '')
-            if not spotify_url:
-                logger.warning(f"Skipping track without Spotify URL: {track.get('title', 'Unknown')}")
-                results.append({
-                    "success": False,
-                    "error": "Missing spotify_url",
-                    "title": track.get('title', 'Unknown')
-                })
-                continue
 
-            # Submit to the new process-safe function
+
+
+def _process_playlist_async(playlist_url, task_id, tracks):
+    """Actual playlist processing running in background."""
+    # This function also runs in a separate process.
+    db_handler_process = DatabaseHandler(db_path=DB_PATH_FOR_APP)
+    try:
+        futures = []
+        for i, track in enumerate(tracks):
             future = playlist_executor.submit(
                 process_single_track_in_playlist_process_safe,
-                spotify_url,
-                DB_PATH_FOR_APP, # Defined globally
+                track['spotify_url'],
+                DB_PATH_FOR_APP,
                 os.getenv('SPOTIPY_CLIENT_ID'),
                 os.getenv('SPOTIPY_CLIENT_SECRET'),
                 os.getenv('YOUTUBE_API_KEY')
             )
             futures.append(future)
+            
+            # Update progress every 5 tracks
+            if i % 5 == 0:
+                db_handler_process.update_task_progress(task_id, processed_items=i)
         
-        # Collect results
-        success_count = 0
+        # Wait for completion
+        results = []
         for future in as_completed(futures):
-            try:
-                result = future.result() # This is the dict from process_single_track_in_playlist_process_safe
-                if result: # Ensure result is not None
-                    results.append(result)
-                    if result.get("success"):
-                        success_count += 1
-                else:
-                    # Handle cases where a future might somehow return None, though our function always returns a dict
-                    logger.warning("A future in playlist processing returned None.")
-                    results.append({"success": False, "error": "Processing task returned None.", "spotify_url": "Unknown"})
-            except Exception as e:
-                # This captures errors from the future itself (e.g., if the process failed unexpectedly)
-                # The process_single_track_in_playlist_process_safe is designed to catch its own errors and return a dict.
-                logger.error(f"Exception collecting result from playlist future: {str(e)}", exc_info=True)
-                # We don't know which URL it was for at this stage easily, unless we map futures to URLs.
-                # For simplicity, adding a generic error. A more robust solution might involve
-                # associating futures with their input spotify_url if detailed error reporting per track is needed here.
-                results.append({"success": False, "error": f"Future completed with an exception: {str(e)}", "spotify_url": "Unknown from exception"})
-        
-        return jsonify({
-            "success": True,
-            "type": "playlist",
-            "message": f"Processed {len(tracks)} tracks, {success_count} successfully processed/found.",
+            results.append(future.result())
+            
+        # Final update
+        success_count = sum(1 for r in results if r.get('success'))
+        db_handler_process.complete_task(task_id, {
+            "success_count": success_count,
             "total_tracks": len(tracks),
-            "successful_operations": success_count, # Clarified field name
             "results": results
         })
         
-    except ValueError as e: # Specific errors like invalid playlist URL before track processing
-        logger.error(f"ValueError processing playlist {playlist_url}: {str(e)}", exc_info=True)
-        return jsonify({"success": False, "error": str(e)}), 400
-    except Exception as e: # Catch-all for other unexpected errors during playlist processing
-        logger.error(f"Unexpected error processing playlist {playlist_url}: {str(e)}", exc_info=True)
-        return jsonify({"success": False, "error": "An unexpected error occurred during playlist processing"}), 500
+    except Exception as e:
+        logger.error(f"Async playlist processing failed: {str(e)}", exc_info=True)
+        db_handler_process.complete_task(task_id, {"error": str(e)})
 
-# The old process_single_track_in_playlist function was removed as it's no longer used.
-# Its functionality is replaced by process_single_track_in_playlist_process_safe for playlist processing.
 
-@songs_bp.route('/api/songs', methods=['GET'])
+@songs_bp.route('/songs', methods=['GET'])
 def get_all_songs():
     """Endpoint to get all songs (for admin panel)."""
     # Note: Add pagination for production use
     songs = db_handler.get_all_songs()
     return jsonify({"success": True, "songs": songs})
 
-@songs_bp.route('/api/songs/<int:song_id>', methods=['DELETE'])
+@songs_bp.route('/songs/<int:song_id>', methods=['DELETE'])
 def delete_song_by_id(song_id):
     """Endpoint to delete a song and its fingerprints."""
     success = db_handler.delete_song(song_id)
@@ -273,7 +236,7 @@ def delete_song_by_id(song_id):
 # Moved to process_single_track and process_single_track_in_playlist functions
 
 
-@songs_bp.route('/api/match_live_audio', methods=['POST'])
+@songs_bp.route('/match_live_audio', methods=['POST'])
 def match_live_audio():
     logger.info("Received request for /api/match_live_audio")
     if 'audio_data' not in request.files:
@@ -320,19 +283,28 @@ def match_live_audio():
 
         best_match = match_results[0]
         matched_song_id = best_match['song_id']
-        score = int(best_match['score']) # Ensure score is Python int for JSON
+        score = int(best_match['score'])
 
         song_details = db_handler.get_song_by_id(matched_song_id)
-        title = song_details.get('title', 'Unknown Title') if song_details else 'Unknown Title'
-        artist = song_details.get('artist', 'Unknown Artist') if song_details else 'Unknown Artist'
 
-        logger.info(f"Match found: ID {matched_song_id}, Title: {title}, Score: {score}")
+        if not song_details:
+            logger.error(f"Match found for song_id {matched_song_id}, but could not retrieve song details from DB.")
+            return jsonify({"success": True, "match_found": False, "message": "Match found but song details are unavailable."}), 200
+
+        logger.info(f"Match found: ID {matched_song_id}, Title: {song_details.get('title')}, Score: {score}")
+        
+        # The frontend ResultsDisplay.jsx component expects camelCase keys
+        # and a specific set of data.
         return jsonify({
             "success": True,
             "match_found": True,
-            "song_id": matched_song_id,
-            "title": title,
-            "artist": artist,
+            "songId": song_details.get('id'),
+            "youtubeId": song_details.get('youtube_id'),
+            "title": song_details.get('title'),
+            "artist": song_details.get('artist'),
+            "album": song_details.get('album'),
+            "coverArt": song_details.get('cover_art_url'),
+            "timestamp": song_details.get('timestamp', 0),
             "score": score
         }), 200
 
@@ -347,3 +319,57 @@ def match_live_audio():
                 logger.info(f"Cleaned up temporary file: {temp_filepath}")
             except Exception as e:
                 logger.error(f"Error cleaning up temporary file {temp_filepath}: {e}")
+
+
+@songs_bp.route('/tasks/cleanup', methods=['POST'])
+def cleanup_old_tasks():
+    """Cleanup completed tasks older than 7 days."""
+    try:
+        with db_handler._get_connection() as conn:
+            cursor = conn.cursor()
+            # Delete tasks first due to foreign key constraint
+            cursor.execute(
+                """DELETE FROM task_notifications 
+                WHERE task_id IN (
+                    SELECT id FROM background_tasks 
+                    WHERE status = 'completed' 
+                    AND datetime(completed_at) < datetime('now', '-7 days')
+                )"""
+            )
+            cursor.execute(
+                """DELETE FROM background_tasks 
+                WHERE status = 'completed' 
+                AND datetime(completed_at) < datetime('now', '-7 days')"""
+            )
+            count = cursor.rowcount
+            conn.commit()
+            
+        return jsonify({
+            "success": True,
+            "message": f"Cleaned up {count} old tasks"
+        })
+        
+    except Exception as e:
+        logger.error(f"Error cleaning up tasks: {str(e)}", exc_info=True)
+        return jsonify({"success": False, "error": str(e)}), 500
+
+
+@songs_bp.route('/tasks/<task_id>', methods=['GET'])
+def get_task_status(task_id):
+    """Check status of background task."""
+    try:
+        task = db_handler.get_task(task_id)
+        if not task:
+            return jsonify({'error': 'Task not found', 'success': False}), 404
+            
+        # Ensure response is complete before returning
+        response = jsonify({
+            'success': True,
+            'task': task
+        })
+        response.headers['Content-Length'] = len(response.get_data())
+        return response
+        
+    except Exception as e:
+        logger.error(f"Error getting task status: {str(e)}", exc_info=True)
+        return jsonify({'error': str(e), 'success': False}), 500

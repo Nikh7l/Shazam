@@ -1,13 +1,14 @@
 from re import DEBUG
 import sqlite3
 from typing import List, Tuple, Any, TYPE_CHECKING, Optional
+import json
+import logging
 
 if TYPE_CHECKING:
     from shazam_core.fingerprinting import Fingerprint # For type hinting
 import os
 from pathlib import Path
 from typing import List, Dict, Any, Optional, Tuple
-import logging
 
 logger = logging.getLogger(__name__)
 logger.setLevel(logging.DEBUG)
@@ -25,7 +26,7 @@ class DatabaseHandler:
     
     def _get_connection(self):
         """Create a new database connection."""
-        return sqlite3.connect(self.db_path)
+        return sqlite3.connect(self.db_path, timeout=30.0)  # 30-second timeout for locked db
     
     def _ensure_db_directory(self):
         """Ensure the database directory exists."""
@@ -310,5 +311,113 @@ class DatabaseHandler:
                 return dict(row)
             return None
 
-# Create a global instance for convenience
-db = DatabaseHandler()
+    def verify_connection(self):
+        """Verify the database connection is active and tables exist"""
+        try:
+            with self._get_connection() as conn:
+                cursor = conn.cursor()
+                
+                # Debug: List all tables
+                cursor.execute("SELECT name FROM sqlite_master WHERE type='table'")
+                all_tables = cursor.fetchall()
+                logger.debug(f"[DEBUG] Found tables: {all_tables}")
+                
+                # Check for our specific table
+                cursor.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='background_tasks'")
+                result = cursor.fetchone()
+                logger.debug(f"[DEBUG] background_tasks check: {result}")
+                
+                if not result:
+                    raise RuntimeError("background_tasks table not found")
+        except Exception as e:
+            logger.error(f"[ERROR] Verification failed: {str(e)}")
+            raise RuntimeError(f"Database verification failed: {str(e)}")
+
+    def create_task(self, task_id, task_type, spotify_url, total_items=1):
+        """Create a new background task record"""
+        self.verify_connection()
+        with self._get_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute(
+                "INSERT INTO background_tasks (task_id, task_type, spotify_url, status, total_items) "
+                "VALUES (?, ?, ?, 'pending', ?)",
+                (task_id, task_type, spotify_url, total_items)
+            )
+            conn.commit()
+
+    def get_task(self, task_id):
+        """Get task by task_id."""
+        with self._get_connection() as conn:
+            conn.row_factory = sqlite3.Row
+            cursor = conn.cursor()
+            cursor.execute(
+                """
+                SELECT 
+                    task_id, task_type, spotify_url, status, created_at, 
+                    started_at, completed_at, processed_items, total_items, result_json
+                FROM background_tasks 
+                WHERE task_id = ?
+                """,
+                (task_id,)
+            )
+            row = cursor.fetchone()
+            return dict(row) if row else None
+
+    def update_task_progress(self, task_id, processed_items=None, total_items=None):
+        """Update task progress"""
+        if processed_items is None and total_items is None:
+            return
+
+        with self._get_connection() as conn:
+            cursor = conn.cursor()
+            updates = []
+            params = []
+            if processed_items is not None:
+                updates.append("processed_items = ?")
+                params.append(processed_items)
+            if total_items is not None:
+                updates.append("total_items = ?")
+                params.append(total_items)
+            
+            if not updates:
+                return
+
+            params.append(task_id)
+            query = f"UPDATE background_tasks SET {', '.join(updates)} WHERE task_id = ?"
+            cursor.execute(query, tuple(params))
+            conn.commit()
+
+    def complete_task(self, task_id, result_json):
+        """Mark task as completed"""
+        with self._get_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute(
+                "UPDATE background_tasks SET status = 'completed', "
+                "completed_at = CURRENT_TIMESTAMP, result_json = ? "
+                "WHERE task_id = ?",
+                (json.dumps(result_json), task_id)
+            )
+            conn.commit()
+
+    def cleanup_old_tasks(self, days: int = 7):
+        """Delete tasks that were completed more than a certain number of days ago."""
+        with self._get_connection() as conn:
+            cursor = conn.cursor()
+            # Use julianday for reliable date comparisons with TEXT dates
+            cursor.execute(
+                """DELETE FROM background_tasks 
+                   WHERE status = 'completed' AND 
+                   julianday('now') - julianday(completed_at) > ?""",
+                (days,)
+            )
+            conn.commit()
+            logger.info(f"Cleaned up {cursor.rowcount} old tasks.")
+    def get_song_count(self):
+        """Get the total number of songs in the database."""
+        with self._get_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute("SELECT COUNT(*) FROM songs")
+            count = cursor.fetchone()[0]
+            return count
+
+

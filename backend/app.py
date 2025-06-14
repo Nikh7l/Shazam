@@ -1,21 +1,86 @@
-# backend/app.py
-from flask import Flask
+from flask import Flask, current_app
 from flask_cors import CORS
+from flask_sock import Sock
+from apscheduler.schedulers.background import BackgroundScheduler
+import os
+from pathlib import Path
 
-# Import your Blueprints
-from routes.songs import songs_bp
-from routes.websockets import ws_bp # <-- Import the new WebSocket Blueprint
-
-# Initialize Flask App
 app = Flask(__name__)
-CORS(app) # Enable CORS for all routes
+sock = Sock(app)
 
-# Register your REST API blueprint
-app.register_blueprint(songs_bp)
+# Configuration
+DB_PATH = Path('/Users/nikhilselvaraj/Projects/Shazam/shazam_library.db')
+app.config['DATABASE'] = str(DB_PATH)
 
-# Register your WebSocket blueprint
-app.register_blueprint(ws_bp)
+CORS(app)
 
+# Initialize app
+with app.app_context():
+    try:
+        # Database setup
+        from database.db_handler import DatabaseHandler
+        db_handler = DatabaseHandler(str(DB_PATH))
+        app.extensions['db_handler'] = db_handler
+        
+        # Run migrations
+        from database.migrations.v2_add_task_tracking import migrate
+        migrate(str(DB_PATH))
+        app.logger.info("Database migration completed")
+        
+        # Initialize services
+        from api_clients.spotify_client import SpotifyClient
+        from api_clients.youtube_client import YouTubeClient
+        from services.song_ingester import SongIngester
+        app.extensions['spotify_client'] = SpotifyClient()
+        app.extensions['youtube_client'] = YouTubeClient()
+        app.extensions['song_ingester'] = SongIngester(
+            db_handler=db_handler,
+            spotify_client=app.extensions['spotify_client'],
+            youtube_client=app.extensions['youtube_client']
+        )
+
+        # Register routes
+        from routes import songs
+        app.register_blueprint(songs.songs_bp)
+        
+        # Register WebSocket routes
+        from routes import websockets
+        app.extensions['sock'] = sock  # Store sock in extensions
+        websockets.register_websockets(sock)
+
+        from routes import stats
+        app.register_blueprint(stats.stats_bp)
+        
+    except Exception as e:
+        app.logger.error(f"Initialization failed: {str(e)}", exc_info=True)
+        raise
+
+# Scheduler setup
+scheduler = BackgroundScheduler()
+# Use a lambda with app.app_context to ensure the db_handler is available.
+scheduler.add_job(
+    func=lambda: app.app_context().push() or db_handler.cleanup_old_tasks(days=1),
+    trigger='interval',
+    hours=24
+)
+try:
+    if not scheduler.running:
+        scheduler.start()
+except (KeyboardInterrupt, SystemExit):
+    scheduler.shutdown()
+
+app.extensions['scheduler'] = scheduler
+
+@app.teardown_appcontext
+def shutdown_scheduler(exception=None):
+    """Shutdown the scheduler if running"""
+    scheduler = current_app.extensions.get('scheduler')
+    if scheduler:
+        try:
+            if scheduler.running:
+                scheduler.shutdown()
+        except Exception as e:
+            current_app.logger.warning(f"Error shutting down scheduler: {str(e)}")
 
 @app.route('/health')
 def health_check():

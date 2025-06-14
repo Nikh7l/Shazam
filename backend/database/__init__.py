@@ -1,3 +1,3 @@
-from .db_handler import db, DatabaseHandler
+from .db_handler import DatabaseHandler
 
-__all__ = ['db', 'DatabaseHandler']
+__all__ = ['DatabaseHandler']

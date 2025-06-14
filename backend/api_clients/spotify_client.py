@@ -45,11 +45,11 @@ class SpotifyClient:
         )
         self.client = spotipy.Spotify(auth_manager=auth_manager)
     
-    def get_track_metadata(self, url: str) -> Dict[str, Union[str, int, float]]:
+    def get_track_metadata(self, spotify_url: str) -> Dict[str, Union[str, int, float]]:
         """Get metadata for a track from its Spotify URL.
         
         Args:
-            url: Spotify track URL or URI
+            spotify_url: Spotify track URL
             
         Returns:
             Dictionary containing track metadata with the following keys:
@@ -67,8 +67,11 @@ class SpotifyClient:
         """
         try:
             # Extract track ID from URL if needed
-            track_id = self._extract_track_id(url)
-            
+            if 'open.spotify.com/track/' in spotify_url:
+                track_id = spotify_url.split('track/')[-1].split('?')[0]
+            else:
+                track_id = spotify_url
+                
             # Get track data
             track = self.client.track(track_id)
             
@@ -113,7 +116,7 @@ class SpotifyClient:
             return metadata
             
         except Exception as e:
-            logger.error(f"Error fetching Spotify track metadata: {str(e)}", exc_info=True)
+            logger.error(f"Error fetching Spotify track {spotify_url}: {str(e)}", exc_info=True)
             raise ValueError(f"Could not fetch track metadata: {str(e)}")
     
     def search_track(self, query: str, limit: int = 5) -> list:
@@ -272,5 +275,3 @@ class SpotifyClient:
             return url_or_uri
             
         raise ValueError("Invalid Spotify track URL or URI")
-
-
