@@ -1,12 +1,32 @@
-# React + Vite
+# Shazam Clone - Frontend
 
-This template provides a minimal setup to get React working in Vite with HMR and some ESLint rules.
+This is the React frontend for the Shazam Clone project. It provides the user interface for recording audio, viewing match results, and managing the song database.
 
-Currently, two official plugins are available:
+## Setup
 
-- [@vitejs/plugin-react](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react) uses [Babel](https://babeljs.io/) for Fast Refresh
-- [@vitejs/plugin-react-swc](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react-swc) uses [SWC](https://swc.rs/) for Fast Refresh
+These instructions assume you are in the `frontend` directory.
 
-## Expanding the ESLint configuration
+1.  **Install Dependencies:**
+    ```bash
+    npm install
+    ```
 
-If you are developing a production application, we recommend using TypeScript with type-aware lint rules enabled. Check out the [TS template](https://github.com/vitejs/vite/tree/main/packages/create-vite/template-react-ts) for information on how to integrate TypeScript and [`typescript-eslint`](https://typescript-eslint.io) in your project.
+## Running the Development Server
+
+To start the Vite development server:
+
+```bash
+npm run dev
+```
+
+The application will be available at `http://localhost:5173`. The server will automatically reload when you make changes to the code.
+
+## Building for Production
+
+To create a production-ready build:
+
+```bash
+npm run build
+```
+
+This will create an optimized build of the application in the `dist` directory.
