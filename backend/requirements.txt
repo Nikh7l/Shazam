@@ -12,3 +12,4 @@ websocket-client
 flask-sock
 gunicorn 
 sounddevice
+ffmpeg-python>=0.2.0  # For audio processing
