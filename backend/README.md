@@ -21,10 +21,6 @@ This is the backend service for the Shazam clone, providing audio fingerprinting
    DATABASE_URL=sqlite:///data/fingerprints.db
    ```
 
-4. Initialize the database:
-   ```bash
-   python -c "from database.db_handler import DatabaseHandler; db = DatabaseHandler()"
-   ```
 
 ## Running the Server
 

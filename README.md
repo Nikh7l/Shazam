@@ -76,6 +76,7 @@ pip install -r requirements.txt
 cp .env.example .env
 SPOTIFY_CLIENT_ID =
 SPOTIFY_CLIENT_SECRET = 
+DB_PATH = # Path to the db 
 # Now, edit the .env file with your credentials
 ```
 Get you Spotify Client ID and Secret [Spotify Docs](https://developer.spotify.com/documentation/web-api/tutorials/getting-started).
