@@ -25,16 +25,16 @@ class SpotifyClient:
             
         Note:
             If client_id and client_secret are not provided, they will be
-            read from the SPOTIPY_CLIENT_ID and SPOTIPY_CLIENT_SECRET
+            read from the SPOTIFY_CLIENT_ID and SPOTIFY_CLIENT_SECRET
             environment variables.
         """
-        self.client_id = client_id or os.getenv('SPOTIPY_CLIENT_ID')
-        self.client_secret = client_secret or os.getenv('SPOTIPY_CLIENT_SECRET')
+        self.client_id = client_id or os.getenv('SPOTIFY_CLIENT_ID')
+        self.client_secret = client_secret or os.getenv('SPOTIFY_CLIENT_SECRET')
         
         if not self.client_id or not self.client_secret:
             raise ValueError(
                 "Spotify client credentials not provided. "
-                "Set SPOTIPY_CLIENT_ID and SPOTIPY_CLIENT_SECRET environment variables "
+                "Set SPOTIFY_CLIENT_ID and SPOTIFY_CLIENT_SECRET environment variables "
                 "or pass them to the constructor."
             )
             

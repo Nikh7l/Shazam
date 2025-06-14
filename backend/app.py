@@ -4,13 +4,22 @@ from flask_sock import Sock
 from apscheduler.schedulers.background import BackgroundScheduler
 import os
 from pathlib import Path
+from dotenv import load_dotenv
+from api_clients.spotify_client import SpotifyClient
+from api_clients.youtube_client import YouTubeClient
+from services.song_ingester import SongIngester
+
+load_dotenv('.env')
 
 app = Flask(__name__)
 sock = Sock(app)
 
 # Configuration
-DB_PATH = Path('/Users/nikhilselvaraj/Projects/Shazam/shazam_library.db')
+DB_PATH = Path(os.getenv('DB_PATH'))
 app.config['DATABASE'] = str(DB_PATH)
+SPOTIFY_CLIENT_ID = os.getenv('SPOTIFY_CLIENT_ID')
+SPOTIFY_CLIENT_SECRET = os.getenv('SPOTIFY_CLIENT_SECRET')
+
 
 CORS(app)
 
@@ -26,12 +35,7 @@ with app.app_context():
         from database.migrations.v2_add_task_tracking import migrate
         migrate(str(DB_PATH))
         app.logger.info("Database migration completed")
-        
-        # Initialize services
-        from api_clients.spotify_client import SpotifyClient
-        from api_clients.youtube_client import YouTubeClient
-        from services.song_ingester import SongIngester
-        app.extensions['spotify_client'] = SpotifyClient()
+        app.extensions['spotify_client'] = SpotifyClient(SPOTIFY_CLIENT_ID, SPOTIFY_CLIENT_SECRET)
         app.extensions['youtube_client'] = YouTubeClient()
         app.extensions['song_ingester'] = SongIngester(
             db_handler=db_handler,

@@ -11,7 +11,7 @@ from api_clients.spotify_client import SpotifyClient
 from api_clients.youtube_client import YouTubeClient
 from dotenv import load_dotenv
 # import os # Removed duplicate import, already imported at the top
-from concurrent.futures import ThreadPoolExecutor, ProcessPoolExecutor, as_completed
+from concurrent.futures import ProcessPoolExecutor, as_completed
 
 load_dotenv()
 
@@ -105,8 +105,8 @@ def _process_single_track_async(spotify_url, task_id):
         result = process_single_track_in_playlist_process_safe(
             spotify_url,
             DB_PATH_FOR_APP,
-            os.getenv('SPOTIPY_CLIENT_ID'),
-            os.getenv('SPOTIPY_CLIENT_SECRET'),
+            os.getenv('SPOTIFY_CLIENT_ID'),
+            os.getenv('SPOTIFY_CLIENT_SECRET'),
             os.getenv('YOUTUBE_API_KEY')
         )
         
@@ -185,8 +185,8 @@ def _process_playlist_async(playlist_url, task_id, tracks):
                 process_single_track_in_playlist_process_safe,
                 track['spotify_url'],
                 DB_PATH_FOR_APP,
-                os.getenv('SPOTIPY_CLIENT_ID'),
-                os.getenv('SPOTIPY_CLIENT_SECRET'),
+                os.getenv('SPOTIFY_CLIENT_ID'),
+                os.getenv('SPOTIFY_CLIENT_SECRET'),
                 os.getenv('YOUTUBE_API_KEY')
             )
             futures.append(future)

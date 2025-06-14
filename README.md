@@ -37,6 +37,14 @@ The application is composed of three main parts:
     -   `react-youtube` for video playback
     -   Standard Fetch API for backend communication
 
+## Screenshots
+
+### Main Application Interface
+![Main Application Interface](./docs/images/shazam%20mainpage.png)
+
+### Song Identified View
+![Song Identified View](./docs/images/song%20identified.png)
+
 ## Setup and Installation
 
 ### Prerequisites
